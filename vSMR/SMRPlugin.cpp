@@ -1,6 +1,76 @@
 #include "stdafx.h"
 #include "SMRPlugin.hpp"
 
+/* =====BEGIN TELEPHONICS CODE===== */
+static std::map<int, int> china_rvsm_m2f = {
+	{300, 1000},
+	{600, 2000},
+	{900, 3000},
+	{1200, 3900},
+	{1500, 4900},
+	{1800, 5900},
+	{2100, 6900},
+	{2400, 7900},
+	{2700, 8900},
+	{3000, 9800},
+	{3300, 10800},
+	{3600, 11800},
+	{3900, 12800},
+	{4200, 13800},
+	{4500, 14800},
+	{4800, 15700},
+	{5100, 16700},
+	{5400, 17700},
+	{5700, 18700},
+	{6000, 19700},
+	{6300, 20700},
+	{6600, 21700},
+	{6900, 22600},
+	{7200, 23600},
+	{7500, 24600},
+	{7800, 25600},
+	{8100, 26600},
+	{8400, 27600},
+	{8900, 29100},
+	{9200, 30100},
+	{9500, 31100},
+	{9800, 32100},
+	{10100, 33100},
+	{10400, 34100},
+	{10700, 35100},
+	{11000, 36100},
+	{11300, 37100},
+	{11600, 38100},
+	{11900, 39100},
+	{12200, 40100},
+	{12500, 41100},
+	{13100, 43000},
+	{13700, 44900},
+	{14300, 46900},
+	{14900, 48900},
+	{15500, 50900}
+};
+static std::map<int, int> china_rvsm_f2m{};
+
+static void init_china_rvsm()
+{
+	for (const auto [m, f] : china_rvsm_m2f) {
+		china_rvsm_f2m[f] = m;
+	}
+}
+
+static decltype(china_rvsm_f2m.end()) get_closest_f2m_it(int feet, int tolerance)
+{
+	if (china_rvsm_f2m.empty())
+		init_china_rvsm();
+	const auto it = china_rvsm_f2m.lower_bound(feet - tolerance);
+	if (it != china_rvsm_f2m.end() && it->first - feet <= tolerance)
+		return it;
+
+	return china_rvsm_f2m.end();
+}
+/* =====END TELEPHONICS CODE===== */
+
 bool Logger::ENABLED;
 string Logger::DLL_PATH;
 
@@ -203,38 +273,54 @@ void sendDatalinkClearance(void * arg) {
 	messageId++;
 	url += std::to_string(messageId);
 	url += "//R/";
-	url += "CLR TO @";
+	url += "CLRD TO @";
 	url += DatalinkToSend.destination;
-	url += "@ RWY @";
+	url += "@ OFF @";
 	url += DatalinkToSend.rwy;
-	url += "@ DEP @";
+	url += "@ VIA @";
 	url += DatalinkToSend.sid;
-	url += "@ INIT CLB @";
-	url += DatalinkToSend.climb;
 	url += "@ SQUAWK @";
 	url += DatalinkToSend.squawk;
+	url += "@ INITIAL ALT @";
+	url += DatalinkToSend.climb;
 	url += "@ ";
-	if (DatalinkToSend.ctot != "no" && DatalinkToSend.ctot.size() > 3) {
-		url += "CTOT @";
-		url += DatalinkToSend.ctot;
-		url += "@ ";
-	}
-	if (DatalinkToSend.asat != "no" && DatalinkToSend.asat.size() > 3) {
-		url += "TSAT @";
-		url += DatalinkToSend.asat;
-		url += "@ ";
-	}
+	//url += "CLR TO @";
+	//url += DatalinkToSend.destination;
+	//url += "@ RWY @";
+	//url += DatalinkToSend.rwy;
+	//url += "@ DEP @";
+	//url += DatalinkToSend.sid;
+	//url += "@ INIT CLB @";
+	//url += DatalinkToSend.climb;
+	//url += "@ SQUAWK @";
+	//url += DatalinkToSend.squawk;
+	//url += "@ ";
+	//if (DatalinkToSend.ctot != "no" && DatalinkToSend.ctot.size() > 3) {
+	//	url += "CTOT @";
+	//	url += DatalinkToSend.ctot;
+	//	url += "@ ";
+	//}
+	//if (DatalinkToSend.asat != "no" && DatalinkToSend.asat.size() > 3) {
+	//	url += "TSAT @";
+	//	url += DatalinkToSend.asat;
+	//	url += "@ ";
+	//}
 	if (DatalinkToSend.freq != "no" && DatalinkToSend.freq.size() > 5) {
-		url += "WHEN RDY CALL FREQ @";
+		//url += "WHEN RDY CALL FREQ @";
+		url += "NEXT FREQ @";
 		url += DatalinkToSend.freq;
 		url += "@";
 	}
 	else {
-		url += "WHEN RDY CALL @";
+		//url += "WHEN RDY CALL @";
+		url += "NEXT FREQ @";
 		url += myfrequency;
 		url += "@";
 	}
-	url += " IF UNABLE CALL VOICE ";
+	// FIXME: No ATIS, No CrzAlt, No departure frequency.
+	// TODO: PDC over private chat.
+	//url += " IF UNABLE CALL VOICE ";
+	url += " ";
 	if (DatalinkToSend.message != "no" && DatalinkToSend.message.size() > 1)
 		url += DatalinkToSend.message;
 
@@ -554,7 +640,11 @@ void CSMRPlugin::OnFunctionCall(int FunctionId, const char * sItemString, POINT 
 			int Ta = GetTransitionAltitude();
 
 			if (ClearedAltitude != 0) {
-				if (ClearedAltitude > Ta && ClearedAltitude > 2) {
+				auto it = get_closest_f2m_it(ClearedAltitude, 0);
+				if (it != china_rvsm_f2m.end()) {
+					toReturn = std::to_string(it->second) + "M";
+				}
+				if (toReturn.empty() && ClearedAltitude > Ta && ClearedAltitude > 2) {
 					string str = std::to_string(ClearedAltitude);
 					for (size_t i = 0; i < 5 - str.length(); i++)
 						str = "0" + str;
@@ -563,7 +653,7 @@ void CSMRPlugin::OnFunctionCall(int FunctionId, const char * sItemString, POINT 
 					toReturn = "FL";
 					toReturn += str;
 				}
-				else if (ClearedAltitude <= Ta && ClearedAltitude > 2) {
+				else if (toReturn.empty() && ClearedAltitude <= Ta && ClearedAltitude > 2) {
 
 
 					toReturn = std::to_string(ClearedAltitude);
